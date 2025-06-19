@@ -1,4 +1,4 @@
-function T = processCardSFile(fileName, colDefs, columns, logFile)
+function T = cardS_process_sub(fileName, colDefs, columns, logFile)
     
     T = readtable(fileName, 'Delimiter',',','ReadVariableNames',false);
     if isempty(T), return; end

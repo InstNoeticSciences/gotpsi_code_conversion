@@ -1,4 +1,4 @@
-function T = processCardDFile(fileName, colDefs, columns, oldColumns, logFile)
+function T = cardD_process_sub(fileName, colDefs, columns, oldColumns, logFile)
     
     T = readtable(fileName, 'Delimiter',',','ReadVariableNames',false);
     nVar = width(T);

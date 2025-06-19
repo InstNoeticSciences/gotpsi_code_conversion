@@ -19,8 +19,8 @@
 
 clear
 
-plotFlag = false;
-folderPath = '/System/Volumes/Data/data/IONS/gotpsi_old_data/raw_data_zipped/cardS_release/cardS_data';
+plotFlag = true;
+folderPath = '/System/Volumes/Data/data/IONS/gotpsi_old_data/raw_data_zipped/cardD_release/cardD_data';
 files = dir(fullfile(folderPath,'*.dat'));
 fileNames = fullfile({files.folder},{files.name});
 fileSizes = [files.bytes];
@@ -57,32 +57,35 @@ if plotFlag
 end
 
 % initialize log
-logFile = '../cardS_release/cardD_import_errors.log';
+logFile = 'cardD_import_errors.log';
 fid = fopen(logFile,'w');
 fprintf(fid,'Import Errors Log\n%s\nStarted at: %s\n\n', ...
     repmat('=',1,50), datestr(now,'yyyy-mm-dd HH:MM:SS'));
 fclose(fid);
 
-% define expected columns and types (USE cardS2.pl)
-% print LOG "$userid, $trial, $steps, $rarray, $im[$tarim], $timeval\n";
-% print LOG "$userid, $trial, $response, $timeval\n";	# log the step
+% define expected columns and types
 colDefs.user_id       = struct('type','string',  'required',true);
-colDefs.trial         = struct('type','int',     'required',true);
-colDefs.step          = struct('type','int',     'required',true);
+colDefs.target_bit    = struct('type','int',     'required',true,'min',0,'max',1);
+colDefs.cards_done    = struct('type','int',     'required',true,'min',0,'max',5);
+colDefs.cards_hit     = struct('type','int',     'required',true,'min',0,'max',5);
+colDefs.markov_stages = struct('type','int',     'required',true,'min',0);
+colDefs.markov_output = struct('type','int',     'required',true,'min',0);
+colDefs.markov_prob   = struct('type','int',     'required',true,'min',0);
+colDefs.markov_bits0  = struct('type','int',     'required',true,'min',0);
+colDefs.markov_bits1  = struct('type','int',     'required',false,'min',0);
+colDefs.card_number   = struct('type','int',     'required',true,'min',0,'max',4);
+colDefs.is_hit        = struct('type','bool',    'required',true);
+colDefs.run_hits      = struct('type','int',     'required',true,'min',0);
+colDefs.trial_number  = struct('type','int',     'required',true,'min',1);
 colDefs.timestamp     = struct('type','datetime','required',true);
-colDefs.guess1        = struct('type','int',     'required',true,'min',0,'max',5);
-colDefs.guess2        = struct('type','int',     'required',true,'min',0,'max',5);
-colDefs.guess3        = struct('type','int',     'required',true,'min',0,'max',5);
-colDefs.guess4        = struct('type','int',     'required',true,'min',0,'max',5);
-colDefs.guess5        = struct('type','int',     'required',true,'min',0,'max',5);
 colDefs.target_image  = struct('type','string',  'required',true);
-colDefs.timestamp2    = struct('type','datetime','required',true);
 %colDefs.extra         = struct('type','string',  'required',false);
 
 columns    = fieldnames(colDefs);
+oldColumns = [columns(1:8); columns(10:end)];  % skip markov_bits1
 
 % start parallel pool
-if true
+if 0
     pool = gcp('nocreate');
     if isempty(pool)
         parpool(max(feature('numcores')-1,1));
@@ -91,8 +94,8 @@ end
 
 % process each file in parallel
 results = cell(nFiles,1);
-parfor iFile = 1:nFiles
-    results{iFile} = processCardSFile(sortedFileNames{iFile}, colDefs, columns, logFile);
+parfor i = 1:nFiles
+    results{i} = cardD_process_sub(sortedFileNames{i}, colDefs, columns, oldColumns, logFile);
 end
 
 delete(gcp('nocreate'));
@@ -102,17 +105,17 @@ tables = results(~cellfun('isempty',results));
 allData = vertcat(tables{:});
 
 % save outputs
-parquetwrite('../cardS_release/cardD_combined_data.parquet', allData);
+parquetwrite('cardD_combined_data.parquet', allData);
 
 % final log summary
-res = sprintf('\n%s\nImport completed at: %s\nTotal files: %d\nImported: %d\nFailed: %d\nTotal rows: %d\nTotal users: %d\n', ...
-    repmat('=',1,50), datestr(now,'yyyy-mm-dd HH:MM:SS'), nFiles, numel(tables), nFiles-numel(tables), height(allData), numel(unique(allData.user_id)));
 fid = fopen(logFile,'a');
-fprintf(fid,'%s', res);
-fprintf('%s', res);
+fprintf(fid,'\n%s\nImport completed at: %s\nTotal files: %d\nImported: %d\nFailed: %d\nTotal rows: %d\n', ...
+    repmat('=',1,50), datestr(now,'yyyy-mm-dd HH:MM:SS'), nFiles, numel(tables), nFiles-numel(tables), height(allData));
 fclose(fid);
 
-fprintf('\nImport complete. See %s for details.\n', logFile);
+fprintf('Import complete. See %s for details.\n', logFile);
+fprintf('Total trials: %d\nTotal hits: %d\nAverage hit rate: %.2f%%\nUnique users: %d\n', ...
+    height(allData), sum(allData.is_hit), mean(allData.is_hit)*100, numel(unique(allData.user_id)));
 
 
 

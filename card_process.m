@@ -57,7 +57,7 @@ if plotFlag
 end
 
 % initialize log
-logFile = 'cardD_import_errors.log';
+logFile = '../card_release/card_import_errors.log';
 fid = fopen(logFile,'w');
 fprintf(fid,'Import Errors Log\n%s\nStarted at: %s\n\n', ...
     repmat('=',1,50), datestr(now,'yyyy-mm-dd HH:MM:SS'));
@@ -92,28 +92,46 @@ end
 
 % process each file in parallel
 results = cell(nFiles,1);
-for iFile = 1987:nFiles
-    results{iFile} = processCardFile(sortedFileNames{iFile}, colDefs, columns, logFile);
+parfor iFile = 1:nFiles
+    results{iFile} = card_process_sub(sortedFileNames{iFile}, colDefs, columns, logFile);
 end
 
 delete(gcp('nocreate'));
 
-% combine all valid tables
-tables = results(~cellfun('isempty',results));
+%% combine all valid tables
+for iFile = 1:length(results)
+    if ~isempty(results{iFile})
+        results{iFile}.user_id = string(results{iFile}.user_id);
+        try
+            allData = vertcat(results{[1 iFile]});
+        catch
+            rows = find(cellfun(@(x)length(x) < 10, results{iFile}.click_x));
+            fprintf(2, '\nHacking attempt at %d (%d/%d good rows, keeping them)\n', iFile, length(rows), size(results{iFile},1));
+            results{iFile} = results{iFile}(rows,:);
+            results{iFile}.click_x = str2double(results{iFile}.click_x);
+            results{iFile}.click_y = str2double(results{iFile}.click_y);
+        end
+        % if ~iscell(tables{1}.user_id) 
+        %     for iElem~ischar(tables{1}.user_id{1})
+        %     sdfsda
+        %     tables{iTable}.user_id = string(tables{iTable}.user_id);
+        % end
+    end
+end
+
+tables = results(~cellfun(@isempty,results));
 allData = vertcat(tables{:});
 
-% save outputs
-parquetwrite('cardD_combined_data.parquet', allData);
+%% save outputs
+parquetwrite('../card_release/card_combined_data.parquet', allData);
 
 % final log summary
+res = sprintf('\n%s\nImport completed at: %s\nTotal files: %d\nImported: %d\nFailed or empty: %d\nTotal rows: %d\nTotal users: %d\n', ...
+    repmat('=',1,50), datestr(now,'yyyy-mm-dd HH:MM:SS'), nFiles, numel(tables), nFiles-numel(tables), height(allData), numel(unique(allData.user_id)));
 fid = fopen(logFile,'a');
-fprintf(fid,'\n%s\nImport completed at: %s\nTotal files: %d\nImported: %d\nFailed: %d\nTotal rows: %d\n', ...
-    repmat('=',1,50), datestr(now,'yyyy-mm-dd HH:MM:SS'), nFiles, numel(tables), nFiles-numel(tables), height(allData));
+fprintf(fid,'%s', res);
+fprintf('%s', res);
 fclose(fid);
 
-fprintf('Import complete. See %s for details.\n', logFile);
-fprintf('Total trials: %d\nTotal hits: %d\nAverage hit rate: %.2f%%\nUnique users: %d\n', ...
-    height(allData), sum(allData.is_hit), mean(allData.is_hit)*100, numel(unique(allData.user_id)));
-
-
+fprintf('\nImport complete. See %s for details.\n', logFile);
 
